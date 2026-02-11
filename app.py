@@ -1,35 +1,36 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
-st.set_page_config(
-    page_title="Gestão de Equipamentos",
-    page_icon="🏢",
-    layout="wide"
-)
+st.set_page_config(page_title="Sistema Patrimonial Corporativo", layout="wide")
 
-# -------------------------
-# BASE DE USUÁRIOS
-# -------------------------
+ARQUIVO_BASE = "equipamentos.csv"
+
+# =============================
+# USUÁRIOS
+# =============================
 
 USUARIOS = {
-    "admin": {
-        "senha": "admin123",
-        "perfil": "admin",
-        "regiao": None
-    },
-    "nordeste": {
-        "senha": "1234",
-        "perfil": "regional",
-        "regiao": "Nordeste"
-    }
+    "admin": {"senha": "admin123", "perfil": "admin", "regiao": None},
+    "gestor_ne": {"senha": "1234", "perfil": "regional", "regiao": "Nordeste"},
 }
 
-# -------------------------
-# LOGIN
-# -------------------------
+# =============================
+# FUNÇÕES
+# =============================
 
-def tela_login():
-    st.markdown("## 🔐 Acesso à Plataforma")
+def carregar_base():
+    return pd.read_csv(ARQUIVO_BASE)
+
+def salvar_base(df):
+    df.to_csv(ARQUIVO_BASE, index=False)
+
+# =============================
+# LOGIN
+# =============================
+
+def login():
+    st.title("🔐 Sistema Patrimonial Corporativo")
     usuario = st.text_input("Usuário")
     senha = st.text_input("Senha", type="password")
 
@@ -40,115 +41,120 @@ def tela_login():
             st.session_state["perfil"] = USUARIOS[usuario]["perfil"]
             st.session_state["regiao"] = USUARIOS[usuario]["regiao"]
         else:
-            st.error("Usuário ou senha inválidos")
+            st.error("Credenciais inválidas")
 
 if "logado" not in st.session_state:
     st.session_state["logado"] = False
 
 if not st.session_state["logado"]:
-    tela_login()
+    login()
     st.stop()
 
-# -------------------------
-# SIDEBAR
-# -------------------------
+# =============================
+# CARREGAR BASE
+# =============================
 
-st.sidebar.success(f"👤 {st.session_state['usuario']}")
-st.sidebar.write(f"Perfil: {st.session_state['perfil']}")
+df = carregar_base()
+
+if st.session_state["perfil"] == "regional":
+    df = df[df["região"] == st.session_state["regiao"]]
+
+# =============================
+# SIDEBAR
+# =============================
+
+st.sidebar.success(st.session_state["usuario"])
+menu = st.sidebar.radio("Menu", [
+    "Dashboard",
+    "Cadastrar Equipamento",
+    "Base Completa"
+])
 
 if st.sidebar.button("Sair"):
     st.session_state.clear()
     st.rerun()
 
-# -------------------------
-# TÍTULO
-# -------------------------
+# =============================
+# DASHBOARD
+# =============================
 
-st.title("📊 Plataforma Corporativa de Equipamentos")
-st.markdown("---")
+if menu == "Dashboard":
 
-# -------------------------
-# UPLOAD
-# -------------------------
+    st.title("📊 Dashboard Executivo")
 
-uploaded_file = st.file_uploader(
-    "Envie a planilha de equipamentos",
-    type=["xlsx", "csv"]
-)
+    col1, col2, col3, col4 = st.columns(4)
 
-if uploaded_file:
+    col1.metric("Total Equipamentos", len(df))
+    col2.metric("Regiões", df["região"].nunique())
+    col3.metric("Categorias", df["categoria"].nunique())
+    col4.metric("Ativos", df[df["status"] == "Ativo"].shape[0])
 
-    if uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
-    else:
-        df = pd.read_excel(uploaded_file)
+    st.markdown("### Distribuição por Categoria")
+    st.bar_chart(df["categoria"].value_counts())
 
-    df.columns = df.columns.str.lower().str.strip()
+    st.markdown("### Distribuição por Região")
+    st.bar_chart(df["região"].value_counts())
 
-    # FILTRO POR PERFIL
-    if st.session_state["perfil"] == "regional":
-        if "região" in df.columns:
-            df = df[df["região"] == st.session_state["regiao"]]
+# =============================
+# CADASTRAR
+# =============================
 
-    # DASHBOARD EXECUTIVO
-    col1, col2, col3 = st.columns(3)
+elif menu == "Cadastrar Equipamento":
 
-    col1.metric("Total de Equipamentos", len(df))
+    st.title("➕ Cadastro de Equipamento")
 
-    if "região" in df.columns:
-        col2.metric("Total de Regiões", df["região"].nunique())
+    with st.form("cadastro"):
+        regiao = st.text_input("Região")
+        unidade = st.text_input("Unidade")
+        categoria = st.text_input("Categoria")
+        nome = st.text_input("Nome")
+        serial = st.text_input("Serial")
+        fabricante = st.text_input("Fabricante")
+        modelo = st.text_input("Modelo")
+        status = st.selectbox("Status", ["Ativo", "Manutenção", "Inativo", "Comodato"])
+        data = st.date_input("Data Aquisição")
+        obs = st.text_area("Observações")
 
-    if "categoria" in df.columns:
-        col3.metric("Categorias", df["categoria"].nunique())
+        submitted = st.form_submit_button("Salvar")
 
-    st.markdown("---")
+        if submitted:
+            novo = pd.DataFrame([{
+                "região": regiao,
+                "unidade": unidade,
+                "categoria": categoria,
+                "nome": nome,
+                "serial": serial,
+                "fabricante": fabricante,
+                "modelo": modelo,
+                "status": status,
+                "data_aquisicao": data,
+                "observacoes": obs
+            }])
 
-    # FILTROS
-    filtro1, filtro2, filtro3 = st.columns(3)
+            base_atual = carregar_base()
+            base_atual = pd.concat([base_atual, novo], ignore_index=True)
+            salvar_base(base_atual)
 
-    if "região" in df.columns:
-        with filtro1:
-            regiao = st.multiselect("Região", df["região"].unique())
-    else:
-        regiao = []
+            st.success("Equipamento cadastrado com sucesso!")
 
-    if "unidade" in df.columns:
-        with filtro2:
-            unidade = st.multiselect("Unidade", df["unidade"].unique())
-    else:
-        unidade = []
+# =============================
+# BASE COMPLETA
+# =============================
 
-    if "categoria" in df.columns:
-        with filtro3:
-            categoria = st.multiselect("Categoria", df["categoria"].unique())
-    else:
-        categoria = []
+elif menu == "Base Completa":
 
-    busca_serial = st.text_input("🔎 Buscar por Número de Série")
+    st.title("📋 Base Patrimonial")
+
+    busca = st.text_input("Buscar equipamento")
 
     df_filtrado = df.copy()
 
-    if regiao:
-        df_filtrado = df_filtrado[df_filtrado["região"].isin(regiao)]
-
-    if unidade:
-        df_filtrado = df_filtrado[df_filtrado["unidade"].isin(unidade)]
-
-    if categoria:
-        df_filtrado = df_filtrado[df_filtrado["categoria"].isin(categoria)]
-
-    if busca_serial and "serial" in df_filtrado.columns:
+    if busca:
         df_filtrado = df_filtrado[
-            df_filtrado["serial"].astype(str).str.contains(busca_serial, case=False)
+            df_filtrado.apply(lambda row: busca.lower() in str(row).lower(), axis=1)
         ]
 
-    st.markdown("### 📋 Lista de Equipamentos")
     st.dataframe(df_filtrado, use_container_width=True)
 
-    # GRÁFICOS
-    if "categoria" in df.columns:
-        st.markdown("### 📈 Distribuição por Categoria")
-        st.bar_chart(df_filtrado["categoria"].value_counts())
-
-else:
-    st.info("Aguardando upload da planilha.")
+    csv = df_filtrado.to_csv(index=False).encode("utf-8")
+    st.download_button("📥 Exportar CSV", csv, "base_patrimonial.csv")
